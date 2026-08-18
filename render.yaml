@@ -1,0 +1,55 @@
+envVarGroups:
+  - name: scrape-pipeline-secrets
+    envVars:
+      - key: API_KEY
+        sync: false
+
+services:
+  - type: web
+    runtime: docker
+    name: scrape-pipeline-api
+    region: frankfurt
+    plan: starter
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - fromGroup: scrape-pipeline-secrets
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: scrape-pipeline-redis
+          property: connectionString
+      - key: SCRAPE_TIMEOUT_MS
+        value: "15000"
+      - key: CACHE_TTL_SECONDS
+        value: "3600"
+
+  - type: worker
+    runtime: docker
+    name: scrape-pipeline-worker
+    region: frankfurt
+    plan: starter
+    dockerCommand: node src/worker.js
+    autoDeployTrigger: commit
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: scrape-pipeline-redis
+          property: connectionString
+      - key: SCRAPE_TIMEOUT_MS
+        value: "15000"
+      - key: CACHE_TTL_SECONDS
+        value: "3600"
+      - key: WORKER_CONCURRENCY
+        value: "2"
+
+  - type: keyvalue
+    name: scrape-pipeline-redis
+    region: frankfurt
+    plan: starter
+    maxmemoryPolicy: noeviction
+    persistenceMode: journal-snapshot
+    ipAllowList:
+      - source: 0.0.0.0/32
+        description: Block external connections; use the private network from Render services.

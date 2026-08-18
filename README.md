@@ -123,9 +123,15 @@ npm test
 
 ## פריסה
 
-המאגר כולל `render.yaml` שמגדיר שירות Web ל־API, שירות Worker לתור ושירות Key Value תואם Redis. Render Blueprints תומכים בהגדרת שירותי Docker, משתני סביבה והפניות בין שירותים בקובץ `render.yaml`; שירות Key Value מספק כתובות חיבור תואמות Redis ומתאים למטמון ולתורי עבודה.[1][2]
+### מסלול חינמי מומלץ: Oracle Cloud Always Free
 
-להוראות פריסה מלאות, כולל החיבור של `REDIS_URL`, סודות, רציפות פריסה ומונטיזציה, ראו [`DEPLOYMENT_INSTRUCTIONS.md`](./DEPLOYMENT_INSTRUCTIONS.md).
+הפריסה החינמית המומלצת מריצה את ה־API, ה־Worker, Redis ו־Caddy על מכונת Oracle Always Free אחת. קובצי הפריסה והוראות היצירה נמצאים תחת [`deploy/oracle`](./deploy/oracle/), והמדריך המלא נמצא ב־[`ORACLE_DEPLOYMENT.md`](./deploy/oracle/ORACLE_DEPLOYMENT.md). Oracle מפרסמת משאבי Compute מסוג Always Free שמאפשרים להריץ מכונה כזו כל עוד נשארים בתוך המכסה החודשית.[1]
+
+### חלופת Render בתשלום
+
+המאגר כולל גם `render.yaml` שמגדיר שירות Web ל־API, שירות Worker לתור ושירות Key Value תואם Redis. Render Blueprints תומכים בהגדרת שירותי Docker, משתני סביבה והפניות בין שירותים בקובץ `render.yaml`; שירות Key Value מספק כתובות חיבור תואמות Redis ומתאים למטמון ולתורי עבודה.[2][3]
+
+להוראות פריסת Render, כולל החיבור של `REDIS_URL`, סודות, רציפות פריסה ומונטיזציה, ראו [`DEPLOYMENT_INSTRUCTIONS.md`](./DEPLOYMENT_INSTRUCTIONS.md).
 
 ## קיבולת ותפעול
 
@@ -133,5 +139,6 @@ npm test
 
 ## מקורות
 
-[1]: https://render.com/docs/blueprint-spec "Render Blueprint YAML Reference"
-[2]: https://render.com/docs/key-value "Render Key Value documentation"
+[1]: https://www.oracle.com/cloud/free/ "Oracle Cloud Free Tier"
+[2]: https://render.com/docs/blueprint-spec "Render Blueprint YAML Reference"
+[3]: https://render.com/docs/key-value "Render Key Value documentation"

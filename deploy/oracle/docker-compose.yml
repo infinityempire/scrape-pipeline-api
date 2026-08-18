@@ -1,0 +1,67 @@
+x-app: &app
+  build:
+    context: ../..
+    dockerfile: Dockerfile
+  image: scrape-pipeline-api:local
+  restart: unless-stopped
+
+services:
+  api:
+    <<: *app
+    command: node src/server.js
+    environment:
+      PORT: 3000
+      REDIS_URL: redis://redis:6379
+      API_KEY: ${API_KEY:?Set API_KEY in the project .env file}
+      SCRAPE_TIMEOUT_MS: ${SCRAPE_TIMEOUT_MS:-15000}
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-3600}
+      ALLOW_PRIVATE_NETWORKS: "false"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker:
+    <<: *app
+    command: node src/worker.js
+    environment:
+      REDIS_URL: redis://redis:6379
+      SCRAPE_TIMEOUT_MS: ${SCRAPE_TIMEOUT_MS:-15000}
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-3600}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      ALLOW_PRIVATE_NETWORKS: "false"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory-policy noeviction
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in the project .env file}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  redis_data:
+  caddy_data:
+  caddy_config:

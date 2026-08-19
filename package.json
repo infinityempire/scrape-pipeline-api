@@ -1,13 +1,12 @@
 {
   "name": "scrape-pipeline-api",
   "version": "1.0.0",
-  "description": "Authenticated, queued web extraction API with Redis caching.",
+  "description": "Authenticated web extraction API with Upstash Redis caching.",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "worker": "node src/worker.js",
     "test": "node --test",
     "lint": "node --check src/*.js && node --check test/*.js"
   },
@@ -15,7 +14,6 @@
     "node": ">=20"
   },
   "dependencies": {
-    "bullmq": "^5.58.3",
     "dotenv": "^16.6.1",
     "express": "^5.1.0",
     "ioredis": "^5.7.0",

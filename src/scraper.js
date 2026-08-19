@@ -10,7 +10,8 @@ const DEFAULT_BROWSER_ARGS = [
   '--disable-setuid-sandbox',
   '--disable-dev-shm-usage',
   '--disable-accelerated-2d-canvas',
-  '--disable-gpu'
+  '--disable-gpu',
+  '--single-process'
 ];
 
 function normalizeText(value) {
@@ -32,7 +33,9 @@ export async function extractFromUrl(url, { timeoutMs = 15000 } = {}) {
     });
 
     const page = await browser.newPage();
-    await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+    page.setDefaultNavigationTimeout(timeoutMs);
+    page.setDefaultTimeout(timeoutMs);
+    await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
     await page.setRequestInterception(true);
     page.on('request', async (request) => {
       if (BLOCKED_RESOURCE_TYPES.has(request.resourceType())) {

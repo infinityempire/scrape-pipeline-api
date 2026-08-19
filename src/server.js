@@ -1,13 +1,28 @@
 import crypto from 'node:crypto';
 import express from 'express';
+import IORedis from 'ioredis';
 import { config, validateConfig } from './config.js';
-import { createQueueServices, enqueueAndWait, getCachedExtraction } from './queue.js';
+import { extractFromUrl } from './scraper.js';
 import { assertSafePublicUrl } from './urlSafety.js';
 
 function secureEqual(left, right) {
   const leftBuffer = Buffer.from(left ?? '');
   const rightBuffer = Buffer.from(right ?? '');
   return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function cacheKeyForUrl(url) {
+  const digest = crypto.createHash('sha256').update(url).digest('hex');
+  return `extract:v1:${digest}`;
+}
+
+function createRedisConnection() {
+  return new IORedis(config.redisUrl, {
+    maxRetriesPerRequest: 1,
+    enableReadyCheck: true,
+    lazyConnect: true,
+    connectTimeout: 10000
+  });
 }
 
 function requireApiKey(req, res, next) {
@@ -26,16 +41,18 @@ function asErrorResponse(error) {
 
 export async function createApp() {
   validateConfig();
-  const services = createQueueServices();
-  await services.ready();
+  const redis = createRedisConnection();
+  await redis.connect();
+  await redis.ping();
 
+  let scrapeInProgress = false;
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: config.maxRequestBodyBytes }));
 
   app.get('/health', async (_req, res) => {
     try {
-      await services.connection.ping();
+      await redis.ping();
       res.status(200).json({ status: 'ok', redis: 'ready', timestamp: new Date().toISOString() });
     } catch {
       res.status(503).json({ status: 'unavailable', redis: 'unreachable' });
@@ -49,11 +66,23 @@ export async function createApp() {
       }
 
       const url = await assertSafePublicUrl(req.body.url, { allowPrivateNetworks: config.allowPrivateNetworks });
-      const cached = await getCachedExtraction(services.connection, url);
-      if (cached) return res.status(200).json({ cached: true, data: cached });
+      const key = cacheKeyForUrl(url);
+      const cached = await redis.get(key);
+      if (cached) return res.status(200).json({ cached: true, data: JSON.parse(cached) });
 
-      const data = await enqueueAndWait({ queue: services.queue, queueEvents: services.queueEvents, url });
-      return res.status(200).json({ cached: false, data });
+      if (scrapeInProgress) {
+        res.set('Retry-After', '15');
+        return res.status(429).json({ error: { code: 'SCRAPE_CAPACITY_REACHED', message: 'Only one uncached extraction can run at a time on this instance. Retry shortly.' } });
+      }
+
+      scrapeInProgress = true;
+      try {
+        const data = await extractFromUrl(url, { timeoutMs: config.scrapeTimeoutMs });
+        await redis.set(key, JSON.stringify(data), 'EX', config.cacheTtlSeconds);
+        return res.status(200).json({ cached: false, data });
+      } finally {
+        scrapeInProgress = false;
+      }
     } catch (error) {
       if (error?.code || error?.name === 'Error') {
         const response = asErrorResponse(error);
@@ -68,17 +97,17 @@ export async function createApp() {
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Unexpected server error.' } });
   });
 
-  return { app, services };
+  return { app, redis };
 }
 
 async function start() {
-  const { app, services } = await createApp();
+  const { app, redis } = await createApp();
   const server = app.listen(config.port, () => console.info(`API listening on port ${config.port}`));
 
   const shutdown = async (signal) => {
     console.info(`${signal} received; shutting down API.`);
     server.close(async () => {
-      await services.close();
+      await redis.quit().catch(() => {});
       process.exit(0);
     });
   };

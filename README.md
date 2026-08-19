@@ -1,68 +1,46 @@
-# Scrape Pipeline Static Site
+# Open GitHub Repository Research
 
-צינור אוטומטי ליצירת **אתר נתונים סטטי** ממקור ציבורי יחיד. GitHub Actions מריץ Puppeteer כל שש שעות, שומר נתון ב־Upstash Redis, מייצר דפי HTML, ומעלה את התוצאה ל־GitHub Pages.
+אתר מחקר פתוח שמציג תצפיות תקופתיות על מאגרי קוד פופולריים, לפי נתונים פומביים המוחזרים מ־GitHub REST Search API. GitHub Actions אוסף snapshot מתוזמן, Upstash Redis שומר את התצפית הקודמת, והאתר הסטטי מוצג ב־GitHub Pages.
 
-> יש להשתמש רק במקור ציבורי שיש לכם זכות לגשת אליו ולהציג ממנו קטע קצר. אין לעקוף חומת תשלום, CAPTCHA, הרשאה, הוראות `robots` או מגבלות גישה. הנתונים באתר הם תצפית ממקור חיצוני ולא ייעוץ, המלצה או הבטחה לתוצאה.
+> זהו פרויקט מחקר פתוח ולא מוצר מסחרי. הוא אינו סורק את GitHub Trending, תוכן מאגרים או פרופילי משתמשים. האתר מציג metadata ציבורי של מאגרים, קישורים למקור, מדד תצפיתי וסיווגי מילות מפתח. הוא אינו מבטיח מגמות, איכות, דירוג, אינדוקס או הכנסה.
 
-## ארכיטקטורה
+## מתודולוגיה
 
-```mermaid
-flowchart LR
-  G[GitHub Actions cron] --> P[Puppeteer]
-  P --> S[Declared public source]
-  P --> U[(Upstash Redis REST)]
-  U --> B[Static site generator]
-  B --> H[public HTML, policy, sitemap, robots]
-  H --> GP[GitHub Pages]
-```
+הצינור שולח בקשת REST Search יחידה ל־GitHub בכל ריצה, עם query ברירת מחדל `stars:>1000` ומיון לפי עדכון אחרון. GitHub מגבילה Search API לבקשות בקצב נמוך יותר מאשר REST רגיל; `GITHUB_TOKEN` המובנה של Actions מקבל מכסת API מתועדת לכל מאגר, והצינור משתמש בבקשה אחת בלבד בכל ריצה.[1] [2]
 
-הדפדפן רץ רק בתוך runner מתוזמן. האתר הסטטי אינו מפעיל Chromium ואינו קורא ל־Upstash בדפדפן המבקר. בכל ריצה נבנים דף ראשי, דף מקור, דף מדיניות, `sitemap.xml` ו־`robots.txt`.
+לכל מאגר נרשמים מספר הכוכבים, שפה, נושאים, forks, timestamps וקטגוריה מחושבת. **Growth Velocity Index** הוא שינוי חיובי בכוכבים בין שתי תצפיות של האתר, מחולק במספר שעות התצפית ומנורמל ל־24 שעות. תצפית ראשונה מוצגת כ־Baseline, ולכן אין לה מדד מהירות. המדד אינו מדד רשמי של GitHub ואינו תחזית.
 
-## רכיבי הפרויקט
-
-| קובץ | אחריות |
+| רכיב | פעולה |
 | --- | --- |
-| `src/scraper.js` | חילוץ מתוזמן, חסימת משאבים כבדים, הגנת SSRF ואימות אישור מקור. |
-| `src/upstash.js` | לקוח REST ל־Upstash עבור `GET`, `SET EX` ו־`PING`. |
-| `src/build_site.js` | יצירת דפים, ייחוס מקור, קטע מוגבל, דף מדיניות, גילוי נאות ובקרות אינדוקס. |
-| `src/server.js` | API מקומי קל, המגיש נתון שכבר נמצא במטמון. |
-| `CONTENT_POLICY.md` | מדיניות מקור, שקיפות, מונטיזציה ואינדוקס. |
-| `.github/workflows/pipeline.yml` | סריקה, בנייה ופריסה כל שש שעות או ידנית. |
+| GitHub REST Search API | מחזיר metadata ציבורי של עד 30 מאגרים העונים ל־query. |
+| Upstash Redis | שומר snapshot יחיד, המשמש לחישוב ההפרש בתצפית הבאה. |
+| `src/githubResearch.js` | איסוף API, מדד מהירות וסיווג מילות מפתח שקוף. |
+| `src/build_site.js` | בונה דף מחקר, טבלת מאגרים, דף מתודולוגיה, `sitemap.xml` ו־`robots.txt`. |
+| GitHub Pages | מפרסם את תוצר המחקר הפתוח. |
 
-## הגדרה ראשונית
+## סיווגים
 
-### 1. Upstash Redis
+הסיווגים `AI & ML`, `Security`, `Data & Analytics`, `Cloud & Infrastructure`, `Web & Interface`, `Developer Tools` ו־`Open Source` מחושבים ממילות מפתח בשם, בתיאור, בשפה וב־topics של כל מאגר. הם קירוב שקוף ויכולים להיות שגויים או חלקיים; הם אינם תוויות של GitHub.
 
-צרו מסד Redis בתוכנית Free ב־[Upstash Console](https://console.upstash.com/) והעתיקו את **REST URL** ואת **REST Token**. Upstash תומכת בפקודות Redis דרך HTTPS, ללא חיבור TCP מתמשך.[1]
+## הגדרה
 
-### 2. GitHub Actions secrets
-
-ב־**Settings → Secrets and variables → Actions** הגדירו את הערכים הבאים:
+ב־**Settings → Secrets and variables → Actions** הגדירו:
 
 | Secret | נדרש | תיאור |
 | --- | --- | --- |
-| `TARGET_URL` | כן | כתובת HTTPS ציבורית אחת לסריקה. |
-| `UPSTASH_REDIS_REST_URL` | כן | כתובת ה־REST מ־Upstash. |
-| `UPSTASH_REDIS_REST_TOKEN` | כן | אסימון הכתיבה מ־Upstash. |
-| `SOURCE_PERMISSION_CONFIRMED` | כן | הערך `true` רק לאחר אישור שיש לכם זכות לגשת למקור ולהציג ממנו קטע. |
-| `PAYPAL_ME_LINK` | לא | קישור HTTPS לתמיכה מרצון בלבד. |
-| `ADSENSE_PUB_ID` | לא | מזהה `ca-pub-` רק לאחר אישור AdSense. |
-| `ORIGINAL_VALUE_STATEMENT` | נדרש לאינדוקס | תיאור של לפחות 30 תווים של הערך המקורי שהאתר מספק. |
-| `ENABLE_SEARCH_INDEXING` | נדרש לאינדוקס | הערך `true` רק לאחר בדיקת הרשאה, ערך מוסף ודפי מדיניות. |
+| `UPSTASH_REDIS_REST_URL` | כן | REST URL ממסד Redis ב־Upstash. |
+| `UPSTASH_REDIS_REST_TOKEN` | כן | אסימון REST בעל הרשאת כתיבה מ־Upstash. |
+| `SOURCE_PERMISSION_CONFIRMED` | כן | הערך `true` מאשר את מקור המחקר המוצהר ואת תנאי השימוש הלא־מסחריים. |
 
-### 3. GitHub Pages
+אין צורך להגדיר `GITHUB_API_TOKEN` ב־Actions: ה־workflow משתמש ב־`${{ github.token }}`. לשימוש מקומי אפשר להגדיר `GITHUB_API_TOKEN` ב־`.env` אם רוצים מכסה מאומתת גבוהה יותר.[2]
 
-ב־**Settings → Pages**, בחרו **Source: GitHub Actions**. GitHub Pages זמינה ללא עלות במאגרים ציבוריים של GitHub Free; המאגר הזה כבר ציבורי, ולכן אסור לשמור בו סודות או תוכן פרטי.[2] [3]
+ב־**Settings → Pages**, בחרו **Source: GitHub Actions**. ב־**Actions → Scheduled scrape, build, and publish** אפשר להפעיל ריצה ידנית. הריצה המחזורית מוגדרת לכל שש שעות.
 
-### 4. ריצה ידנית ראשונה
+## אינדוקס ומקור
 
-פתחו **Actions → Scheduled scrape, build, and publish → Run workflow**. ה־workflow ישמור את הנתון ב־Upstash, יבנה את האתר ויפרסם אותו ב־GitHub Pages.
+האתר הנוכחי מאפשר crawl דרך `robots.txt` ומפרסם `sitemap.xml`, אך אינדוקס בפועל נתון לשיקול מנוע החיפוש. הוא מיועד להפצה פתוחה של מחקר, לא לתוכן אוטומטי בהיקף גדול לצורך הכנסות. לפני שינוי query, הגדלת היקף או שינוי שימוש יש לקרוא את `CONTENT_POLICY.md` ואת `github_source_research.md`.
 
-## מקור, אינדוקס ומונטיזציה
-
-הסריקה לא תתחיל בלי `SOURCE_PERMISSION_CONFIRMED=true`. בנוסף, האתר נשאר עם `noindex,nofollow` כברירת מחדל ו־`robots.txt` חוסם סורקים. אינדוקס דורש את שלושת התנאים: אישור מקור, `ENABLE_SEARCH_INDEXING=true`, ו־`ORIGINAL_VALUE_STATEMENT` תקין. Google מציינת שפרסום דפים רבים שנוצרים בעיקר לצורך דירוגים או מפרסמים תוכן סרוק ללא ערך מוסף עשוי להיחשב abuse.[4]
-
-קישור PayPal הוא תמיכה מרצון בלבד ואינו הבטחת הכנסה. אין כרגע קישורי Affiliate באתר; אם יתווספו בעתיד, יש לסמן אותם בגילוי נאות ולהשתמש ב־`rel="sponsored nofollow"`. פרסום AdSense דורש אישור ותאימות למדיניות, לרבות איסור על קליקים או חשיפות מלאכותיים ועל ניווט מטעה.[5] גילוי נאות נדרש כאשר קשר פיננסי עלול להשפיע על הערכת המבקר.[6]
+מדיניות השימוש של GitHub מבדילה בין API ובין scraping, ומגבילה את השימוש במידע מהשירות. הפרויקט נשאר פתוח, מיוחס וללא פרסומות, אפיליאייט או קישורי תשלום כדי להתיישר עם מסלול המחקר שנבחר.[3]
 
 ## עבודה מקומית
 
@@ -76,20 +54,16 @@ npm run build:site
 npm start
 ```
 
-השרת המקומי כולל `GET /api/v1/data` ו־`GET /health`; הוא מגיש תוצאת מטמון ואינו מפעיל Puppeteer.
-
 ## בדיקות
 
 ```bash
-npm run lint
 npm test
+npm run lint
 ```
 
 ## מקורות
 
-[1]: https://upstash.com/docs/redis/features/restapi "Upstash Redis REST API"
-[2]: https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages "GitHub Pages custom workflows"
-[3]: https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages "GitHub Pages availability"
-[4]: https://developers.google.com/search/docs/essentials/spam-policies "Google Search spam policies"
-[5]: https://support.google.com/adsense/answer/48182?hl=en "AdSense Program policies"
-[6]: https://www.ftc.gov/business-guidance/resources/ftcs-endorsement-guides-what-people-are-asking "FTC Endorsement Guides"
+[1]: https://docs.github.com/en/rest/search/search?apiVersion=2022-11-28 "GitHub REST Search API"
+[2]: https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api "GitHub REST API rate limits"
+[3]: https://docs.github.com/en/site-policy/acceptable-use-policies/github-acceptable-use-policies "GitHub Acceptable Use Policies"
+

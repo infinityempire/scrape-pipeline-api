@@ -5,38 +5,38 @@ import path from 'node:path';
 import test from 'node:test';
 import { buildSite } from '../src/build_site.js';
 
-test('builds static pages, sitemap, and configured monetization markup', async () => {
-  const outputDir = await mkdtemp(path.join(os.tmpdir(), 'scrape-site-'));
+test('builds an indexable GitHub open research site with attribution and methodology', async () => {
+  const outputDir = await mkdtemp(path.join(os.tmpdir(), 'github-research-site-'));
   const data = {
+    kind: 'github-open-research',
     timestamp: '2026-08-19T00:00:00.000Z',
-    title: 'Example data <brief>',
-    text: 'Collected content for testing.',
-    target: { requestedUrl: 'https://example.com/', finalUrl: 'https://example.com/' },
-    metadata: { description: 'Test description', statusCode: 200 }
+    title: 'Open GitHub repository research',
+    metadata: { query: 'stars:>1000', incompleteResults: false },
+    research: {
+      repositories: [{
+        id: 1, fullName: 'example/research-tool', name: 'research-tool', htmlUrl: 'https://github.com/example/research-tool',
+        description: 'A sample open research repository.', language: 'JavaScript', topics: ['research'], stars: 1200,
+        forks: 90, openIssues: 2, observedAt: '2026-08-19T00:00:00.000Z', category: 'Developer Tools',
+        starDelta: 12, observedHours: 6, growthVelocityIndex: 48, trendStatus: 'Observed growth'
+      }]
+    }
   };
 
   try {
-    const result = await buildSite({
-      data,
-      outputDir,
-      siteUrl: 'https://infinityempire.github.io/scrape-pipeline-api',
-      paypalMeLink: 'https://www.paypal.com/paypalme/example',
-      adsensePubId: 'ca-pub-1234567890123456',
-      sourcePermissionConfirmed: true,
-      enableSearchIndexing: true,
-      originalValueStatement: 'A timestamped test brief links visitors to the original source and records collection time.'
-    });
+    const result = await buildSite({ data, outputDir, siteUrl: 'https://infinityempire.github.io/scrape-pipeline-api' });
     const index = await readFile(path.join(outputDir, 'index.html'), 'utf8');
-    const detail = await readFile(path.join(outputDir, 'data', 'latest', 'index.html'), 'utf8');
+    const methodology = await readFile(path.join(outputDir, 'methodology', 'index.html'), 'utf8');
     const sitemap = await readFile(path.join(outputDir, 'sitemap.xml'), 'utf8');
+    const robots = await readFile(path.join(outputDir, 'robots.txt'), 'utf8');
 
-    assert.equal(result.pages, 3);
-    assert.match(index, /Example data &lt;brief&gt;/);
-    assert.match(index, /paypal\.com\/paypalme\/example/);
-    assert.match(index, /ca-pub-1234567890123456/);
-    assert.match(detail, /Collected content for testing\./);
-    assert.match(sitemap, /https:\/\/infinityempire\.github\.io\/scrape-pipeline-api\/data\/latest\//);
-    assert.match(await readFile(path.join(outputDir, 'policy', 'index.html'), 'utf8'), /Source-led, transparent automation/);
+    assert.equal(result.pages, 2);
+    assert.match(index, /example\/research-tool/);
+    assert.match(index, /48\.00 ★ \/ day/);
+    assert.match(index, /No advertising, affiliate links, or payment prompts/);
+    assert.doesNotMatch(index, /paypal\.me/);
+    assert.match(methodology, /GitHub REST Search API/);
+    assert.match(sitemap, /methodology/);
+    assert.match(robots, /Allow: \//);
   } finally {
     await rm(outputDir, { recursive: true, force: true });
   }

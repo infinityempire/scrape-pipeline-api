@@ -1,7 +1,7 @@
 {
   "name": "scrape-pipeline-api",
   "version": "2.0.0",
-  "description": "Scheduled Puppeteer scraper with Upstash Redis REST caching and a lightweight cache API.",
+  "description": "Scheduled open research pipeline using the GitHub REST Search API, Upstash Redis snapshots, and GitHub Pages.",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
@@ -17,9 +17,6 @@
   },
   "dependencies": {
     "dotenv": "^16.6.1",
-    "express": "^5.1.0",
-    "puppeteer": "^25.8.0",
-    "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2"
+    "express": "^5.1.0"
   }
 }

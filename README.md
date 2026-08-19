@@ -1,147 +1,97 @@
-# Scrape Pipeline API
+# Scrape Pipeline Static Site
 
-API מאומת לחילוץ תוכן ציבורי מדפי אינטרנט, עם **Puppeteer Stealth**, מטמון **Upstash Redis** ואריזה לפריסת Docker על Koyeb. המימוש מותאם במכוון למסלול Koyeb Free: שירות Web יחיד מבצע את החילוץ בתוך הבקשה ושומר את התוצאה במטמון Redis לשעה.
+צינור אוטומטי ליצירת **אתר נתונים סטטי** מתוך מקור ציבורי יחיד. GitHub Actions מריץ Puppeteer בכל שש שעות, שומר את הנתון המעובד ב־Upstash Redis, מייצר דפי HTML וספריות חיפוש, ומעלה את התוצאה ל־GitHub Pages.
 
-> הפרויקט מיועד לשימוש חוקי, מכבד ולפי תנאי השירות של אתרי היעד. אין לעקוף חומות תשלום, מנגנוני הרשאה, CAPTCHA או מגבלות גישה של אתר.
+> יש להשתמש רק בנתונים ציבוריים שהשימוש בהם מותר לפי תנאי המקור. אין לעקוף חומת תשלום, CAPTCHA, הרשאה, robots directives או מגבלות גישה של האתר. כל טענה עובדתית חשובה באתר המופק צריכה להיבדק מול המקור המקורי.
 
 ## ארכיטקטורה
 
 ```mermaid
 flowchart LR
-    C[Client] -->|X-API-KEY| A[Express API on Koyeb]
-    A -->|GET cache| R[(Upstash Redis)]
-    R -->|Cache hit| A
-    A -->|Cache miss| P[Puppeteer + Stealth]
-    P --> W[Public web page]
-    P -->|SETEX: 1 hour| R
-    A --> J[Structured JSON]
-    J --> C
+  G[GitHub Actions cron] --> P[Puppeteer + Stealth]
+  P --> S[Public target URL]
+  P --> U[(Upstash Redis REST)]
+  U --> B[Static site generator]
+  B --> H[public/ HTML + sitemap + robots]
+  H --> GP[GitHub Pages]
 ```
 
-הדפדפן פועל במצב headless עם דגלים מצמצמי זיכרון, חוסם תמונות, גופנים, מדיה ו־CSS, ומוגבל ל־15 שניות. רק חילוץ לא־מוטמן אחד מורשה בכל רגע כדי לצמצם סיכון לעומס זיכרון ב־Koyeb Free.
+הדפדפן רץ רק בתוך runner מתוזמן. האתר הסטטי אינו מפעיל Chromium ואינו קורא ל־Upstash מדפדפן המבקר. בכל ריצה, הנתון נשמר ל־24 שעות וממנו נבנים `index.html`, דף פירוט, `sitemap.xml` ו־`robots.txt`.
 
-## יכולות
+## רכיבי הפרויקט
 
-| רכיב | מימוש |
+| קובץ | אחריות |
 | --- | --- |
-| API | Express, `POST /api/v1/extract` ו־`GET /health` |
-| אימות | כותרת `X-API-KEY` עם השוואה קבועת־זמן |
-| דפדפן | Puppeteer Extra עם Stealth Plugin, timeout של 15 שניות וניקוי `browser.close()` |
-| מטמון | Upstash Redis באמצעות `ioredis`, תוקף של שעה |
-| הגנה | חסימת כתובות פרטיות, כתובות עם credentials ורשתות פנימיות (SSRF) |
-| פריסה | Dockerfile תואם Koyeb ו־GitHub Actions ל־lint, בדיקות ובניית Docker |
+| `src/scraper.js` | חילוץ מתוזמן עם Puppeteer Stealth, חסימת משאבים כבדים ושמירה ב־Upstash. |
+| `src/upstash.js` | לקוח REST ל־Upstash עבור `GET`, `SET EX` ו־`PING`. |
+| `src/build_site.js` | יצירת האתר הסטטי, מטא־דאטה לחיפוש ומכלי מונטיזציה. |
+| `src/server.js` | API קל לשימוש מקומי בלבד, המגיש נתון שכבר נמצא במטמון. |
+| `.github/workflows/pipeline.yml` | סריקה, בנייה והעלאה ל־GitHub Pages כל שש שעות או ידנית. |
 
-## הפעלה מקומית
+## הגדרה ראשונית
 
-דרושים Node.js 20+, Chromium מקומי, ו־Redis. אפשר להשתמש ב־Docker Compose אם Docker זמין.
+### 1. צרו מסד Upstash Redis
+
+צרו מסד Redis ב־[Upstash Console](https://console.upstash.com/). לאחר מכן העתיקו את שני ערכי ה־REST API: **REST URL** ו־**REST Token**. Upstash תומכת בפקודות Redis דרך HTTPS עם כותרת Authorization, ולכן אין צורך בחיבור TCP מתמשך.[1]
+
+### 2. הוסיפו GitHub Actions secrets
+
+במאגר GitHub פתחו **Settings → Secrets and variables → Actions → New repository secret** והוסיפו את הערכים הבאים:
+
+| Secret | נדרש | תיאור |
+| --- | --- | --- |
+| `TARGET_URL` | כן | כתובת HTTPS ציבורית אחת לסריקה. |
+| `UPSTASH_REDIS_REST_URL` | כן | כתובת ה־REST מ־Upstash. |
+| `UPSTASH_REDIS_REST_TOKEN` | כן | אסימון ה־REST מ־Upstash. |
+| `PAYPAL_ME_LINK` | לא | קישור HTTPS לחשבון PayPal.Me שיוצג כלחצן תמיכה. |
+| `ADSENSE_PUB_ID` | לא | מזהה בפורמט `ca-pub-` בן 16 ספרות, לאחר אישור AdSense. |
+
+`PAYPAL_ME_LINK` ו־`ADSENSE_PUB_ID` מוזרקים רק בשלב הבנייה של GitHub Actions. אין צורך לשמור אותם בקוד, ב־HTML המקור או ב־`.env` שמועלה ל־Git. המזהה של AdSense והקישור ל־PayPal יופיעו לבסוף בדף הציבורי, משום שזה נדרש לפעולתן של התבניות.
+
+### 3. הפעלת GitHub Pages
+
+ב־**Settings → Pages**, בחרו **Source: GitHub Actions**. ה־workflow משתמש ב־`actions/upload-pages-artifact` וב־`actions/deploy-pages`, נתיב הפריסה הרשמי של GitHub Pages עבור אתר סטטי.[2]
+
+> **מגבלת התוכנית החינמית:** GitHub Pages זמינה ללא עלות עבור מאגרים **ציבוריים** ב־GitHub Free. המאגר הנוכחי הוא פרטי, ולכן כדי לעמוד ביעד של $0 יש לשנות את הנראות שלו ל־Public לפני הפעלת Pages. אין לבצע זאת אם קוד המקור או תיאור הפרויקט אינם מיועדים לחשיפה.[3]
+
+### 4. הפעלה ידנית ראשונה
+
+ב־GitHub פתחו **Actions → Scheduled scrape, build, and publish → Run workflow**. לאחר שה־workflow יסתיים בהצלחה, GitHub Pages תציג את כתובת האתר ב־Settings → Pages.
+
+## תבניות מונטיזציה
+
+מחולל האתר יוצר תמיד מקום ייעודי ל־Affiliate. כאשר מוגדר `ADSENSE_PUB_ID` תקין, הוא מוסיף את script ה־AdSense ואת תג `ins.adsbygoogle`. כאשר מוגדר `PAYPAL_ME_LINK` תקין, הוא מוסיף לחצן תמיכה. אין בקוד מנגנון של מעקף מדיניות, קליקים מלאכותיים, חיוב משתמשים או טיפול בכסף.
+
+פרסום, אפיליאייט ותשלומים כפופים לתנאי השירות של כל ספק ולדרישות גילוי נאות, מדיניות תוכן ואישור חשבון. האתר חייב לכלול תוכן שימושי ומקורי, ולא להציג נתונים סרוקים כאילו נכתבו על ידכם.
+
+## עבודה מקומית
 
 ```bash
 git clone https://github.com/infinityempire/scrape-pipeline-api.git
 cd scrape-pipeline-api
 cp .env.example .env
-# ערכו את .env ובחרו API_KEY בטוח
 npm ci
+```
+
+לאחר עריכת `.env`, אפשר להריץ:
+
+```bash
+npm run scrape
+npm run build:site
 npm start
 ```
 
-ב־macOS או Linux שבו Chromium אינו בנתיב ברירת המחדל, הגדירו את `PUPPETEER_EXECUTABLE_PATH` לנתיב הבינארי המתאים.
+השרת המקומי כולל `GET /api/v1/data` ו־`GET /health`; הוא מגיש רק תוצאת מטמון ולא מפעיל Puppeteer.
 
-להרצה עם Redis מקומי דרך Compose:
-
-```bash
-API_KEY="dev-secret" docker compose up --build
-```
-
-## משתני סביבה
-
-| משתנה | נדרש | ברירת מחדל | תיאור |
-| --- | --- | --- | --- |
-| `PORT` | לא | `8080` | פורט ה־HTTP של השירות. |
-| `REDIS_URL` | כן | — | כתובת `rediss://` של Upstash, כולל נקודתיים לפני הסיסמה. |
-| `API_KEY` | כן | — | סוד לאימות קריאות API. |
-| `SCRAPE_TIMEOUT_MS` | לא | `15000` | תקרת זמן החילוץ במילישניות. |
-| `CACHE_TTL_SECONDS` | לא | `3600` | תוקף המטמון בשניות. |
-| `MAX_REQUEST_BODY_BYTES` | לא | `10kb` | מגבלת גוף הבקשה. |
-| `ALLOW_PRIVATE_NETWORKS` | לא | `false` | השאירו `false` בפריסה ציבורית. |
-
-> ב־ioredis עם TLS, Upstash מתעדת כתובת בפורמט `rediss://:PASSWORD@ENDPOINT:PORT`; הנקודתיים שלפני הסיסמה נדרשים.[1]
-
-## API
-
-### `GET /health`
-
-מחזיר את מצב השירות ואת קישוריות Redis. נקודה זו אינה דורשת API key כדי שמנגנון הבריאות של Koyeb יוכל להשתמש בה.
-
-```json
-{
-  "status": "ok",
-  "redis": "ready",
-  "timestamp": "2026-08-19T00:00:00.000Z"
-}
-```
-
-### `POST /api/v1/extract`
-
-יש לכלול את `X-API-KEY` ואת ה־URL הציבורי לחילוץ.
-
-```bash
-curl --request POST https://YOUR-KOYEB-URL/api/v1/extract \
-  --header 'Content-Type: application/json' \
-  --header 'X-API-KEY: YOUR_SECRET' \
-  --data '{"url":"https://example.com"}'
-```
-
-תגובה מוצלחת:
-
-```json
-{
-  "cached": false,
-  "data": {
-    "title": "Example Domain",
-    "text": "Example Domain ...",
-    "metadata": {
-      "description": null,
-      "canonical": null,
-      "language": "en",
-      "charset": "UTF-8",
-      "requestedUrl": "https://example.com/",
-      "finalUrl": "https://example.com/",
-      "statusCode": 200,
-      "contentType": "text/html"
-    },
-    "timestamp": "2026-08-19T00:00:00.000Z"
-  }
-}
-```
-
-קריאה נוספת לאותו URL לפני תום שעה מחזירה `cached: true` ומונעת פתיחת דפדפן חדשה.
-
-| סטטוס | משמעות |
-| ---: | --- |
-| `200` | חילוץ או תוצאת מטמון הוחזרו. |
-| `400` | בקשה לא תקינה או URL לא ציבורי/לא בטוח. |
-| `401` | `X-API-KEY` חסר או שגוי. |
-| `429` | חילוץ לא־מוטמן אחר עדיין רץ; נסו שוב לאחר כ־15 שניות. |
-| `502` | החילוץ נכשל מול אתר היעד. |
-| `504` | אתר היעד לא נטען בתוך מגבלת הזמן. |
-
-## פריסה ללא עלות חודשית
-
-המדריך המלא נמצא ב־[`DEPLOYMENT.md`](./DEPLOYMENT.md). Koyeb מאפשרת Web Service חינמי אחד של 512MB RAM ו־0.1 vCPU, אשר יורד לאפס לאחר שעה ללא תעבורה; הוא מיועד לניסויים ופרויקטי hobby, ולא לפרודקשן.[2] Upstash Free מספקת 256MB ו־500,000 פקודות Redis בחודש.[3]
-
-בגלל מגבלות אלה, גרסה זו מתאימה לבדיקות, דמואים ונפח בקשות נמוך. היא **אינה** תחליף לשירות scraping יציב בעומס גבוה.
-
-## בדיקות ורציפות
+## בדיקות
 
 ```bash
 npm run lint
 npm test
 ```
 
-ה־workflow ב־`.github/workflows/ci.yml` מריץ התקנת תלויות, בדיקות תחביר, בדיקות יחידה ובניית תמונת Docker בכל pull request ובכל דחיפה ל־`main`.
-
 ## מקורות
 
-[1]: https://upstash.com/docs/redis/troubleshooting/no_auth "Upstash: ioredis TLS URL format"
-[2]: https://www.koyeb.com/docs/reference/instances "Koyeb Free Instances"
-[3]: https://upstash.com/pricing/redis "Upstash Redis Pricing"
+[1]: https://upstash.com/docs/redis/features/restapi "Upstash Redis REST API"
+[2]: https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages "GitHub Pages custom workflows"
+[3]: https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages "GitHub Pages availability"

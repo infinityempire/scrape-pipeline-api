@@ -1,5 +1,6 @@
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import { setCachedScrape } from './upstash.js';
 import { assertSafePublicUrl } from './urlSafety.js';
 
 puppeteer.use(StealthPlugin());
@@ -9,9 +10,7 @@ const DEFAULT_BROWSER_ARGS = [
   '--no-sandbox',
   '--disable-setuid-sandbox',
   '--disable-dev-shm-usage',
-  '--disable-accelerated-2d-canvas',
-  '--disable-gpu',
-  '--single-process'
+  '--disable-gpu'
 ];
 
 function normalizeText(value) {
@@ -26,6 +25,7 @@ function formatFailure(error) {
 export async function extractFromUrl(url, { timeoutMs = 15000 } = {}) {
   let browser;
   try {
+    const requestedUrl = await assertSafePublicUrl(url, { allowPrivateNetworks: false });
     browser = await puppeteer.launch({
       headless: true,
       args: DEFAULT_BROWSER_ARGS,
@@ -43,23 +43,22 @@ export async function extractFromUrl(url, { timeoutMs = 15000 } = {}) {
         return;
       }
       try {
-        await assertSafePublicUrl(request.url(), { allowPrivateNetworks: process.env.ALLOW_PRIVATE_NETWORKS === 'true' });
+        await assertSafePublicUrl(request.url(), { allowPrivateNetworks: false });
         await request.continue();
       } catch {
         await request.abort('blockedbyclient').catch(() => {});
       }
     });
 
-    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+    const response = await page.goto(requestedUrl, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
     const pageData = await page.evaluate(() => {
-      const first = (selector) => document.querySelector(selector)?.getAttribute('content')?.trim() || null;
-      const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute('href') || null;
+      const meta = (selector) => document.querySelector(selector)?.getAttribute('content')?.trim() || null;
       return {
         title: document.title?.trim() || null,
-        text: document.body ? document.body.innerText : '',
+        text: document.body?.innerText || '',
         metadata: {
-          description: first('meta[name="description"]') || first('meta[property="og:description"]'),
-          canonical,
+          description: meta('meta[name="description"]') || meta('meta[property="og:description"]'),
+          canonical: document.querySelector('link[rel="canonical"]')?.getAttribute('href') || null,
           language: document.documentElement.lang || null,
           charset: document.characterSet || null
         }
@@ -67,16 +66,15 @@ export async function extractFromUrl(url, { timeoutMs = 15000 } = {}) {
     });
 
     return {
+      timestamp: new Date().toISOString(),
+      target: { requestedUrl, finalUrl: response?.url() ?? page.url() },
       title: pageData.title,
-      text: normalizeText(pageData.text).slice(0, 1_000_000),
+      text: normalizeText(pageData.text).slice(0, 250000),
       metadata: {
         ...pageData.metadata,
-        requestedUrl: url,
-        finalUrl: response?.url() ?? page.url(),
         statusCode: response?.status() ?? null,
         contentType: response?.headers()['content-type'] ?? null
-      },
-      timestamp: new Date().toISOString()
+      }
     };
   } catch (error) {
     const extractionError = new Error(formatFailure(error));
@@ -85,4 +83,27 @@ export async function extractFromUrl(url, { timeoutMs = 15000 } = {}) {
   } finally {
     await browser?.close().catch(() => {});
   }
+}
+
+export async function runScheduledScrape() {
+  const targetUrl = process.env.TARGET_URL;
+  if (!targetUrl) throw new Error('TARGET_URL is required for the scheduled scraper.');
+
+  const timeoutMs = Number.parseInt(process.env.SCRAPE_TIMEOUT_MS ?? '15000', 10);
+  const ttlSeconds = Number.parseInt(process.env.CACHE_TTL_SECONDS ?? '86400', 10);
+  const data = await extractFromUrl(targetUrl, { timeoutMs });
+  await setCachedScrape(data, { ttlSeconds });
+  return data;
+}
+
+async function main() {
+  const data = await runScheduledScrape();
+  console.info(JSON.stringify({ status: 'stored', timestamp: data.timestamp, target: data.target.finalUrl }));
+}
+
+if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
 }

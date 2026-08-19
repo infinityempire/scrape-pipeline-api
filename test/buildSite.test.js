@@ -21,18 +21,22 @@ test('builds static pages, sitemap, and configured monetization markup', async (
       outputDir,
       siteUrl: 'https://infinityempire.github.io/scrape-pipeline-api',
       paypalMeLink: 'https://www.paypal.com/paypalme/example',
-      adsensePubId: 'ca-pub-1234567890123456'
+      adsensePubId: 'ca-pub-1234567890123456',
+      sourcePermissionConfirmed: true,
+      enableSearchIndexing: true,
+      originalValueStatement: 'A timestamped test brief links visitors to the original source and records collection time.'
     });
     const index = await readFile(path.join(outputDir, 'index.html'), 'utf8');
     const detail = await readFile(path.join(outputDir, 'data', 'latest', 'index.html'), 'utf8');
     const sitemap = await readFile(path.join(outputDir, 'sitemap.xml'), 'utf8');
 
-    assert.equal(result.pages, 2);
+    assert.equal(result.pages, 3);
     assert.match(index, /Example data &lt;brief&gt;/);
     assert.match(index, /paypal\.com\/paypalme\/example/);
     assert.match(index, /ca-pub-1234567890123456/);
     assert.match(detail, /Collected content for testing\./);
     assert.match(sitemap, /https:\/\/infinityempire\.github\.io\/scrape-pipeline-api\/data\/latest\//);
+    assert.match(await readFile(path.join(outputDir, 'policy', 'index.html'), 'utf8'), /Source-led, transparent automation/);
   } finally {
     await rm(outputDir, { recursive: true, force: true });
   }

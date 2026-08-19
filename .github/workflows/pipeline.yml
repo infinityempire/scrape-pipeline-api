@@ -40,6 +40,7 @@ jobs:
           TARGET_URL: ${{ secrets.TARGET_URL }}
           UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
           UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+          SOURCE_PERMISSION_CONFIRMED: ${{ secrets.SOURCE_PERMISSION_CONFIRMED }}
           CACHE_TTL_SECONDS: '86400'
           SCRAPE_TIMEOUT_MS: '15000'
         run: node src/scraper.js
@@ -50,6 +51,9 @@ jobs:
           UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
           PAYPAL_ME_LINK: ${{ secrets.PAYPAL_ME_LINK }}
           ADSENSE_PUB_ID: ${{ secrets.ADSENSE_PUB_ID }}
+          SOURCE_PERMISSION_CONFIRMED: ${{ secrets.SOURCE_PERMISSION_CONFIRMED }}
+          ORIGINAL_VALUE_STATEMENT: ${{ secrets.ORIGINAL_VALUE_STATEMENT }}
+          ENABLE_SEARCH_INDEXING: ${{ secrets.ENABLE_SEARCH_INDEXING }}
         run: SITE_URL="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}" node src/build_site.js
 
       - name: Upload GitHub Pages artifact
